@@ -1,37 +1,39 @@
-from nltk.tokenize import word_tokenize
 import pandas as pd
-import numpy as np
 import shap
-import os
-import shutil
-import subprocess
+from nltk.tokenize import word_tokenize
 
+from sts_models.bertscore_model import BertScoreModel
 from sts_models.psbert_model import PSBertModel
 from sts_models.sbert_model import SBertModel
-from sts_models.bertscore_model import BertScoreModel
+
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = ''
+
 
 class STSWrapper():
     def __init__(self, sts_model, tokenizer='nltk'):
         self.sts_model = sts_model
-        if tokenizer == 'nltk': self.tokenizer = word_tokenize
-        elif tokenizer == 'split': self.tokenizer = self._split_tokenizer
-            
+        if tokenizer == 'nltk':
+            self.tokenizer = word_tokenize
+        elif tokenizer == 'split':
+            self.tokenizer = self._split_tokenizer
+
     def _split_tokenizer(self, sent):
         return sent.split()
 
     def __call__(self, sent_pair_list):
         batch = []
         for pair in sent_pair_list:
-            s1,s2 = pair[0].split('[SEP]')
-            batch.append( (s1,s2) )
+            s1, s2 = pair[0].split('[SEP]')
+            batch.append((s1, s2))
 
         scores = self.sts_model(batch)
         return scores
 
     def _tokenize_sent(self, sentence):
-        if isinstance(sentence,str):
-            #token_ids = self.sts_model.tokenizer.encode(sentence)
-            #tokens = self.sts_model.tokenizer.convert_ids_to_tokens(token_ids)[1:-1]
+        if isinstance(sentence, str):
+            # token_ids = self.sts_model.tokenizer.encode(sentence)
+            # tokens = self.sts_model.tokenizer.convert_ids_to_tokens(token_ids)[1:-1]
             tokens = self.tokenizer(sentence)
         elif isinstance(sentence, list):
             tokens = sentence
@@ -55,13 +57,14 @@ class STSWrapper():
     def mask_model(self, mask, x):
         tokens = []
         for mm, tt in zip(mask, x):
-            if mm: tokens.append(tt)
-            else: tokens.append('[MASK]')
+            if mm:
+                tokens.append(tt)
+            else:
+                tokens.append('[MASK]')
         s1 = ' '.join(tokens[:self.s1len])
         s2 = ' '.join(tokens[self.s1len:])
-        sentence_pair = pd.DataFrame([s1+'[SEP]'+s2])
+        sentence_pair = pd.DataFrame([s1 + '[SEP]' + s2])
         return sentence_pair
-
 
 
 class ExplainableSTS():
@@ -71,7 +74,7 @@ class ExplainableSTS():
         elif wanted_sts_model == 'pair-bert':
             sts_model = PSBertModel()
         elif wanted_sts_model == 'bert-score':
-            sts_model = BertScoreModel()
+            sts_model = BertScoreModel(gpu=False)
 
         self.wrapper = STSWrapper(sts_model)
 
@@ -84,17 +87,14 @@ class ExplainableSTS():
         explainer = shap.Explainer(self.wrapper, self.wrapper.mask_model)
         value = explainer(self.wrapper.build_feature(sent1, sent2))
         if plot: shap.waterfall_plot(value[0])
-        all_tokens = [] 
-        all_tokens += ['s1_'+t for t in self.wrapper.tokenizer(sent1)] 
-        all_tokens += ['s2_'+t for t in self.wrapper.tokenizer(sent2)] 
+        all_tokens = []
+        all_tokens += ['s1_' + t for t in self.wrapper.tokenizer(sent1)]
+        all_tokens += ['s2_' + t for t in self.wrapper.tokenizer(sent2)]
 
-        return [(token,sv) for token, sv in zip(all_tokens,value[0].values)]
-
-
+        return [(token, sv) for token, sv in zip(all_tokens, value[0].values)]
 
 
-
-
-
-
-
+if __name__ == '__main__':
+    model = ExplainableSTS("sbert")
+    s1, s2 = "financial account management and allocation", "portfolio optimisation and crying over shit"
+    print(model.explain(s1, s2, plot=True))

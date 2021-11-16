@@ -1,20 +1,16 @@
-import sys
-sys.path.append('./xmover')
+import numpy as np
 import pandas as pd
-import numpy as np
 import shap
-import os
-from mosestokenizer import MosesDetokenizer, MosesTokenizer
-import argparse
-from scorer import XMOVERScorer
-import numpy as np
 import torch
 import truecase
+from mosestokenizer import MosesDetokenizer, MosesTokenizer
+
+from xmover.scorer import XMOVERScorer
 
 
 class XMoverWrapper():
     def __init__(self, src_lang, tgt_lang, model_name, do_lower_case, language_model, mapping, device, ngram, bs):
-        self.src_lang = src_lang 
+        self.src_lang = src_lang
         self.tgt_lang = tgt_lang
         self.mapping = mapping
         self.device = device
@@ -23,7 +19,7 @@ class XMoverWrapper():
 
         temp = np.loadtxt('./xmover/mapping/europarl-v7.' + src_lang + '-' + tgt_lang + '.2k.12.BAM.map')
         self.projection = torch.tensor(temp, dtype=torch.float).to(device)
-        
+
         temp = np.loadtxt('./xmover/mapping/europarl-v7.' + src_lang + '-' + tgt_lang + '.2k.12.GBDD.map')
         self.bias = torch.tensor(temp, dtype=torch.float).to(device)
 
@@ -37,18 +33,19 @@ class XMoverWrapper():
         translations = [s[0] for s in translations]
         translations = [truecase.get_true_case(s) for s in translations]
         source = [self.src_sent] * len(translations)
-        xmoverscores = self.scorer.compute_xmoverscore(self.mapping, self.projection, self.bias, source, translations, self.ngram, self.bs)
+        xmoverscores = self.scorer.compute_xmoverscore(self.mapping, self.projection, self.bias, source, translations,
+                                                       self.ngram, self.bs)
         return np.array(xmoverscores)
 
     def tokenize_sent(self, sentence, lang):
-        with MosesTokenizer(lang) as tokenize:        
+        with MosesTokenizer(lang) as tokenize:
             tokens = tokenize(sentence)
-        return tokens       
+        return tokens
 
     def detokenize(self, tokens, lang):
-        with MosesDetokenizer(lang) as tokenize:        
+        with MosesDetokenizer(lang) as tokenize:
             sent = tokenize(tokens)
-        return sent 
+        return sent
 
     def build_feature(self, trans_sent):
         tokens = self.tokenize_sent(trans_sent, self.tgt_lang)
@@ -61,23 +58,24 @@ class XMoverWrapper():
     def mask_model(self, mask, x):
         tokens = []
         for mm, tt in zip(mask, x):
-            if mm: tokens.append(tt)
-            else: tokens.append('[MASK]')
+            if mm:
+                tokens.append(tt)
+            else:
+                tokens.append('[MASK]')
         trans_sent = self.detokenize(tokens, self.tgt_lang)
         sentence = pd.DataFrame([trans_sent])
         return sentence
 
 
-
 class ExplainableXMover():
-    def __init__(self, src_lang, tgt_lang, model_name='bert-base-multilingual-cased', do_lower_case=False, language_model='gpt2', mapping='CLP', device='cuda:0', ngram=2, bs=32):
-        self.wrapper = XMoverWrapper(src_lang, tgt_lang, model_name, do_lower_case, language_model, mapping, device, ngram, bs)
+    def __init__(self, src_lang, tgt_lang, model_name='bert-base-multilingual-cased', do_lower_case=False,
+                 language_model='gpt2', mapping='CLP', device='cuda:0', ngram=2, bs=32):
+        self.wrapper = XMoverWrapper(src_lang, tgt_lang, model_name, do_lower_case, language_model, mapping, device,
+                                     ngram, bs)
 
     def __call__(self, src_sent, trans_sent):
-        #return self.wrapper.scorer.compute_xmoverscore(self.wrapper.mapping, self.wrapper.projection, self.wrapper.bias, [self.wrapper.detokenize(src_sent.split(),self.wrapper.src_lang)], [self.wrapper.detokenize(trans_sent.split(),self.wrapper.tgt_lang)], self.wrapper.ngram, self.wrapper.bs)[0]
         self.wrapper.src_sent = src_sent
         return self.wrapper([[trans_sent]])[0]
-
 
     def explain(self, src_sent, trans_sent, plot=False):
         self.wrapper.src_sent = src_sent
@@ -86,20 +84,16 @@ class ExplainableXMover():
         if plot: shap.waterfall_plot(value[0])
         all_tokens = self.wrapper.tokenize_sent(trans_sent, self.wrapper.tgt_lang)
 
-        return [(token,sv) for token, sv in zip(all_tokens,value[0].values)]
+        return [(token, sv) for token, sv in zip(all_tokens, value[0].values)]
 
 
 if __name__ == '__main__':
-    model = ExplainableXMover('de','en')
+    model = ExplainableXMover('de', 'en')
     src = 'Er mag Hunde'
     trans = 'He dislikes dogs'
     score = model(src, trans)
     exps = model.explain(src, trans)
-    
+
     print('\n =========')
     print(score)
     print(exps)
-
-
-
-
